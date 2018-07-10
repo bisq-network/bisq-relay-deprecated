@@ -1,0 +1,17 @@
+# Vim
+*.swp
+
+# IDEA
+.idea
+*.iml
+out
+
+# Gradle
+build
+.gradle
+
+# Heroku
+.heroku/
+.jdk/
+.profile.d/
+tor/
