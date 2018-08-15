@@ -17,12 +17,12 @@
 
 package bisq.relay;
 
-import java.net.URL;
-
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
+import java.util.Scanner;
 import java.util.concurrent.ExecutionException;
 
 import lombok.extern.slf4j.Slf4j;
@@ -43,79 +43,70 @@ import com.turo.pushy.apns.util.SimpleApnsPushNotification;
 import com.turo.pushy.apns.util.concurrent.PushNotificationFuture;
 
 @Slf4j
-public class RelayService {
-    private static final String IOS_BUNDLE_IDENTIFIER = "com.joachimneumann.bisqremotetest";
-    private static final String IOS_CERTIFICATE_FILE = "push_certificate.production.p12";
+class RelayService {
     private static final String ANDROID_CERTIFICATE_FILE = "serviceAccountKey.json";
     private static final String ANDROID_DATABASE_URL = "https://bisqremotetest.firebaseio.com";
+    // Used in Bisq app to check for success state. We won't want a code dependency just for that string so we keep it
+    // duplicated in core and here. Must not be changed.
+    private static final String SUCCESS = "success";
 
-    private ApnsClient apnsClient;
+    private final String appleBundleId;
 
-    private boolean isProductionMode;
+    private ApnsClient productionApnsClient;
+    private ApnsClient devApnsClient; // used for iOS development in XCode
 
-    public RelayService(boolean isProductionMode) {
-        this.isProductionMode = isProductionMode;
+    RelayService(String appleCertPwPath, String appleCertPath, String appleBundleId) {
+        this.appleBundleId = appleBundleId;
         try {
-            setup();
+            ClassLoader classLoader = getClass().getClassLoader();
+            InputStream androidCert = classLoader.getResourceAsStream(ANDROID_CERTIFICATE_FILE);
+            if (androidCert == null) {
+                throw new IOException(ANDROID_CERTIFICATE_FILE + " does not exist");
+            } else {
+                FirebaseOptions options = new FirebaseOptions.Builder()
+                    .setCredentials(GoogleCredentials.fromStream(androidCert))
+                    .setDatabaseUrl(ANDROID_DATABASE_URL)
+                    .build();
+
+                FirebaseApp.initializeApp(options);
+            }
+
+            InputStream certInputStream = new FileInputStream(appleCertPwPath);
+            Scanner scanner = new Scanner(certInputStream);
+            String password = scanner.next();
+            productionApnsClient = new ApnsClientBuilder()
+                .setApnsServer(ApnsClientBuilder.PRODUCTION_APNS_HOST)
+                .setClientCredentials(new File(appleCertPath), password)
+                .build();
+            devApnsClient = new ApnsClientBuilder()
+                .setApnsServer(ApnsClientBuilder.DEVELOPMENT_APNS_HOST)
+                .setClientCredentials(new File(appleCertPath), password)
+                .build();
         } catch (IOException e) {
             log.error(e.toString());
             e.printStackTrace();
         }
     }
 
-    String sendMessage(boolean isAndroid, String token, String encryptedMessage, boolean useSound) {
-        if (isAndroid) {
-            return sendAndroidMessage(token, encryptedMessage, useSound);
-        } else {
-            return sendAppleMessage(token, encryptedMessage, useSound);
-        }
-    }
-
-    private void setup() throws IOException {
-        ClassLoader classLoader = getClass().getClassLoader();
-
-        InputStream androidCert = classLoader.getResourceAsStream(ANDROID_CERTIFICATE_FILE);
-        if (androidCert == null) {
-            throw new IOException(ANDROID_CERTIFICATE_FILE + " does not exist");
-        } else {
-            FirebaseOptions options = new FirebaseOptions.Builder()
-                .setCredentials(GoogleCredentials.fromStream(androidCert))
-                .setDatabaseUrl(ANDROID_DATABASE_URL)
-                .build();
-
-            FirebaseApp.initializeApp(options);
-        }
-
-        URL iosCert = classLoader.getResource(IOS_CERTIFICATE_FILE);
-        if (iosCert == null) {
-            throw new IOException(IOS_CERTIFICATE_FILE + " does not exist");
-        } else {
-            File p12File = new File(iosCert.getFile());
-            log.info("Using iOS certification file {}.", p12File.getAbsolutePath());
-            String apnsServer = isProductionMode ? ApnsClientBuilder.PRODUCTION_APNS_HOST : ApnsClientBuilder.DEVELOPMENT_APNS_HOST;
-            apnsClient = new ApnsClientBuilder()
-                .setApnsServer(apnsServer)
-                .setClientCredentials(p12File, "")
-                .build();
-        }
-    }
-
-    private String sendAppleMessage(String apsTokenHex, String encryptedMessage, boolean useSound) {
+    String sendAppleMessage(boolean isProduction, boolean isContentAvailable, String apsTokenHex, String encryptedMessage, boolean useSound) {
         ApnsPayloadBuilder payloadBuilder = new ApnsPayloadBuilder();
         if (useSound)
             payloadBuilder.setSoundFileName("default");
-        payloadBuilder.setAlertBody("Bisq notifcation");
+        payloadBuilder.setAlertBody("Bisq notification");
+        payloadBuilder.setContentAvailable(isContentAvailable);
         payloadBuilder.addCustomProperty("encrypted", encryptedMessage);
         final String payload = payloadBuilder.buildWithDefaultMaximumLength();
-        SimpleApnsPushNotification simpleApnsPushNotification = new SimpleApnsPushNotification(apsTokenHex, IOS_BUNDLE_IDENTIFIER, payload);
+        log.info("payload " + payload);
+        SimpleApnsPushNotification simpleApnsPushNotification = new SimpleApnsPushNotification(apsTokenHex, appleBundleId, payload);
 
+        ApnsClient apnsClient = isProduction ? productionApnsClient : devApnsClient;
         PushNotificationFuture<SimpleApnsPushNotification, PushNotificationResponse<SimpleApnsPushNotification>>
             notificationFuture = apnsClient.sendNotification(simpleApnsPushNotification);
         try {
             PushNotificationResponse<SimpleApnsPushNotification> pushNotificationResponse = notificationFuture.get();
             if (pushNotificationResponse.isAccepted()) {
                 log.info("Push notification accepted by APNs gateway.");
-                return "success";
+                return SUCCESS;
             } else {
                 String msg1 = "Notification rejected by the APNs gateway: " +
                     pushNotificationResponse.getRejectionReason();
@@ -134,7 +125,7 @@ public class RelayService {
         }
     }
 
-    private String sendAndroidMessage(String apsTokenHex, String encryptedMessage, boolean useSound) {
+    String sendAndroidMessage(String apsTokenHex, String encryptedMessage, boolean useSound) {
         Message.Builder builder = Message.builder()
             .putData("encrypted", encryptedMessage)
             .setToken(apsTokenHex);

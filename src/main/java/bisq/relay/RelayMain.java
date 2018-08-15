@@ -18,16 +18,11 @@
 package bisq.relay;
 
 import bisq.common.app.Log;
-import bisq.common.app.Version;
 import bisq.common.util.Utilities;
 
 import org.apache.commons.codec.binary.Hex;
 
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-
 import java.io.File;
-import java.io.IOException;
 
 import java.util.Locale;
 
@@ -41,7 +36,7 @@ import static spark.Spark.port;
 
 public class RelayMain {
     private static final Logger log = LoggerFactory.getLogger(RelayMain.class);
-    public static final String VERSION = "0.6.4";
+    private static final String VERSION = "0.1.0";
     private static RelayService relayService;
 
     static {
@@ -51,47 +46,70 @@ public class RelayMain {
         Utilities.removeCryptographyRestrictions();
     }
 
-    public static void main(String[] args) throws IOException, NoSuchAlgorithmException, InvalidKeyException {
+    /**
+     * @param args      Pass port as program argument if other port than default port 8080 is wanted.
+     */
+    public static void main(String[] args) {
         final String logPath = System.getProperty("user.home") + File.separator + "provider";
         Log.setup(logPath);
         Log.setLevel(Level.INFO);
         log.info("Log files under: " + logPath);
         log.info("RelayVersion.VERSION: " + VERSION);
-        log.info("Bisq exchange Version{" +
-            "VERSION=" + Version.VERSION +
-            ", P2P_NETWORK_VERSION=" + Version.P2P_NETWORK_VERSION +
-            ", LOCAL_DB_VERSION=" + Version.LOCAL_DB_VERSION +
-            ", TRADE_PROTOCOL_VERSION=" + Version.TRADE_PROTOCOL_VERSION +
-            ", BASE_CURRENCY_NETWORK=NOT SET" +
-            ", getP2PNetworkId()=NOT SET" +
-            '}');
         Utilities.printSysInfo();
 
-        port(8888);
 
-        relayService = new RelayService(true);
+        String appleCertPwPath;
+        if (args.length > 0)
+            appleCertPwPath = args[0];
+        else
+            throw new RuntimeException("You need to set the path to the password text file for the Apple push certificate as first argument.");
+
+        String appleCertPath;
+        if (args.length > 1)
+            appleCertPath = args[1];
+        else
+            throw new RuntimeException("You need to set the path to the Apple push certificate as second argument.");
+
+        String appleBundleId;
+        if (args.length > 2)
+            appleBundleId = args[2];
+        else
+            throw new RuntimeException("You need to set the Apple bundle ID as third argument.");
+
+        int port = 8080;
+        if (args.length > 3)
+            port = Integer.parseInt(args[3]);
+
+        port(port);
+
+        relayService = new RelayService(appleCertPwPath, appleCertPath, appleBundleId);
 
         handleRelay();
 
         keepRunning();
     }
 
-    private static void handleRelay() throws IOException {
+    private static void handleRelay() {
         get("/relay", (request, response) -> {
             log.info("Incoming relay request from: " + request.userAgent());
-            // http://localhost:8080/hello?isAndroid=false&snd=true&token=testToken&msg=testMsg
             boolean isAndroid = request.queryParams("isAndroid").equalsIgnoreCase("true");
             boolean useSound = request.queryParams("snd").equalsIgnoreCase("true");
-            String apsTokenHex = new String(Hex.decodeHex(request.queryParams("token").toCharArray()), "UTF-8");
+            String token = new String(Hex.decodeHex(request.queryParams("token").toCharArray()), "UTF-8");
             String encryptedMessage = new String(Hex.decodeHex(request.queryParams("msg").toCharArray()), "UTF-8");
-
-            log.info("isAndroid={}\nuseSound={}\napsTokenHex={}\nencryptedMessage={}",
-                isAndroid, useSound, apsTokenHex, encryptedMessage);
-            return relayService.sendMessage(isAndroid, apsTokenHex, encryptedMessage, useSound);
+            log.info("isAndroid={}\nuseSound={}\napsTokenHex={}\nencryptedMessage={}", isAndroid, useSound, token,
+                encryptedMessage);
+            if (isAndroid) {
+                return relayService.sendAndroidMessage(token, encryptedMessage, useSound);
+            } else {
+                boolean isProduction = request.queryParams("isProduction").equalsIgnoreCase("true");
+                boolean isContentAvailable = request.queryParams("isContentAvailable").equalsIgnoreCase("true");
+                return relayService.sendAppleMessage(isProduction, isContentAvailable, token, encryptedMessage, useSound);
+            }
         });
     }
 
     private static void keepRunning() {
+        //noinspection InfiniteLoopStatement
         while (true) {
             try {
                 Thread.sleep(Long.MAX_VALUE);
