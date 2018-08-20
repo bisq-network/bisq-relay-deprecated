@@ -15,3 +15,6 @@ build
 .jdk/
 .profile.d/
 tor/
+
+serviceAccountKey.json
+
