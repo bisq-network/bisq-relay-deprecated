@@ -44,7 +44,6 @@ import com.turo.pushy.apns.util.concurrent.PushNotificationFuture;
 
 @Slf4j
 class RelayService {
-    private static final String ANDROID_CERTIFICATE_FILE = "serviceAccountKey.json";
     private static final String ANDROID_DATABASE_URL = "https://bisqremotetest.firebaseio.com";
     // Used in Bisq app to check for success state. We won't want a code dependency just for that string so we keep it
     // duplicated in core and here. Must not be changed.
@@ -55,22 +54,29 @@ class RelayService {
     private ApnsClient productionApnsClient;
     private ApnsClient devApnsClient; // used for iOS development in XCode
 
-    RelayService(String appleCertPwPath, String appleCertPath, String appleBundleId) {
+    RelayService(String appleCertPwPath, String appleCertPath, String appleBundleId, String androidCertPath) {
         this.appleBundleId = appleBundleId;
+
+        setupForAndroid(androidCertPath);
+        setupForApple(appleCertPwPath, appleCertPath);
+    }
+
+    private void setupForAndroid(String androidCertPath) {
         try {
-            ClassLoader classLoader = getClass().getClassLoader();
-            InputStream androidCert = classLoader.getResourceAsStream(ANDROID_CERTIFICATE_FILE);
-            if (androidCert == null) {
-                throw new IOException(ANDROID_CERTIFICATE_FILE + " does not exist");
-            } else {
-                FirebaseOptions options = new FirebaseOptions.Builder()
-                    .setCredentials(GoogleCredentials.fromStream(androidCert))
-                    .setDatabaseUrl(ANDROID_DATABASE_URL)
-                    .build();
+            InputStream androidCertStream = new FileInputStream(androidCertPath);
+            FirebaseOptions options = new FirebaseOptions.Builder()
+                .setCredentials(GoogleCredentials.fromStream(androidCertStream))
+                .setDatabaseUrl(ANDROID_DATABASE_URL)
+                .build();
+            FirebaseApp.initializeApp(options);
+        } catch (IOException e) {
+            log.error(e.toString());
+            e.printStackTrace();
+        }
+    }
 
-                FirebaseApp.initializeApp(options);
-            }
-
+    private void setupForApple(String appleCertPwPath, String appleCertPath) {
+        try {
             InputStream certInputStream = new FileInputStream(appleCertPwPath);
             Scanner scanner = new Scanner(certInputStream);
             String password = scanner.next();

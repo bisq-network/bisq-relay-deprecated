@@ -76,13 +76,20 @@ public class RelayMain {
         else
             throw new RuntimeException("You need to set the Apple bundle ID as third argument.");
 
-        int port = 8080;
+        String androidCertPath;
         if (args.length > 3)
-            port = Integer.parseInt(args[3]);
+            androidCertPath = args[3];
+        else
+            throw new RuntimeException("You need to set the Android certificate path as 4th argument.");
+
+
+        int port = 8080;
+        if (args.length > 4)
+            port = Integer.parseInt(args[4]);
 
         port(port);
 
-        relayService = new RelayService(appleCertPwPath, appleCertPath, appleBundleId);
+        relayService = new RelayService(appleCertPwPath, appleCertPath, appleBundleId, androidCertPath);
 
         handleRelay();
 
