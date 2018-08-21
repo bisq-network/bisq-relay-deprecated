@@ -44,7 +44,7 @@ import com.turo.pushy.apns.util.concurrent.PushNotificationFuture;
 
 @Slf4j
 class RelayService {
-    private static final String ANDROID_DATABASE_URL = "https://bisqremotetest.firebaseio.com";
+    private static final String ANDROID_DATABASE_URL = "https://bisqnotifications.firebaseio.com";
     // Used in Bisq app to check for success state. We won't want a code dependency just for that string so we keep it
     // duplicated in core and here. Must not be changed.
     private static final String SUCCESS = "success";
