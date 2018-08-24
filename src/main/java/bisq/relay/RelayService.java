@@ -35,6 +35,7 @@ import com.google.firebase.FirebaseOptions;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.Message;
+import com.google.firebase.messaging.Notification;
 import com.turo.pushy.apns.ApnsClient;
 import com.turo.pushy.apns.ApnsClientBuilder;
 import com.turo.pushy.apns.PushNotificationResponse;
@@ -132,12 +133,14 @@ class RelayService {
     }
 
     String sendAndroidMessage(String apsTokenHex, String encryptedMessage, boolean useSound) {
-        Message.Builder builder = Message.builder()
-            .putData("encrypted", encryptedMessage)
-            .setToken(apsTokenHex);
+        Message.Builder messageBuilder = Message.builder();
+        Notification notification = new Notification("Bisq", "Notification");
+        messageBuilder.setNotification(notification);
+        messageBuilder.putData("encrypted", encryptedMessage);
+        messageBuilder.setToken(apsTokenHex);
         if (useSound)
-            builder.putData("sound", "default");
-        Message message = builder.build();
+            messageBuilder.putData("sound", "default");
+        Message message = messageBuilder.build();
         try {
             FirebaseMessaging firebaseMessaging = FirebaseMessaging.getInstance();
             return firebaseMessaging.send(message);
